@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "mdf"
+version = "0.1.0"
+description = ""
+authors = ["fusedbloxxer <voidwarden@yahoo.com>"]
+readme = "README.md"
+packages = [{include = "mdf", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
