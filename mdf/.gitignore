@@ -1,3 +1,7 @@
+### Custom ###
+/data/
+/deps/
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,linux,visualstudiocode,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,linux,visualstudiocode,jupyternotebooks
 
