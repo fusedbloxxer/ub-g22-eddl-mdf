@@ -1,0 +1,4 @@
+[submodule "pytorch3d"]
+	path = mdf/deps/pytorch3d
+	url = git@github.com:fusedbloxxer/pytorch3d.git
+	branch = main

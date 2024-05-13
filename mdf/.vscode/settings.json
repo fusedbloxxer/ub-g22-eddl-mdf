@@ -1,0 +1,6 @@
+{
+    "python.defaultInterpreterPath": "/home/invokariman/.cache/pypoetry/virtualenvs/mdf-B-9uJKhD-py3.11/bin/python",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportPrivateImportUsage": "information"
+    }
+}
