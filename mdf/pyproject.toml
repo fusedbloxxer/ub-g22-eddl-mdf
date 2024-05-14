@@ -21,7 +21,6 @@ torch = {version = "=2.2.0", source = "pt-cuda"}
 torchvision = {version = "^0.17", source = "pt-cuda"}
 fvcore = "^0.1.5.post20221221"
 iopath = "^0.1.10"
-pytorch3d = { file = "deps/pytorch3d/pytorch3d-0.7.6-cp311-cp311-linux_x86_64.whl" }
 pyvista = { version="^0.43.7", extras=["all"] }
 matplotlib = "^3.8.4"
 trame = "^3.6.0"

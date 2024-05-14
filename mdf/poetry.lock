@@ -2874,29 +2874,6 @@ files = [
 ]
 
 [[package]]
-name = "pytorch3d"
-version = "0.7.6"
-description = "PyTorch3D is FAIR's library of reusable components for deep Learning with 3D data."
-optional = false
-python-versions = "*"
-files = [
-    {file = "pytorch3d-0.7.6-cp311-cp311-linux_x86_64.whl", hash = "sha256:9fe4252f219fd5784304d520827d8d3c3333d5150a965ad2a7063a10093a2005"},
-]
-
-[package.dependencies]
-fvcore = "*"
-iopath = "*"
-
-[package.extras]
-all = ["imageio", "ipywidgets", "matplotlib", "tqdm (>4.29.0)"]
-dev = ["flake8", "usort"]
-implicitron = ["accelerate", "hydra-core (>=1.1)", "lpips", "matplotlib", "sqlalchemy (>=2.0)", "tqdm (>4.29.0)", "visdom"]
-
-[package.source]
-type = "file"
-url = "deps/pytorch3d/pytorch3d-0.7.6-cp311-cp311-linux_x86_64.whl"
-
-[[package]]
 name = "pytz"
 version = "2024.1"
 description = "World timezone definitions, modern and historical"
@@ -4329,4 +4306,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "cde87677a6d1b943a7cc98dcef60a6cdada8caad384f8a07b45d7270fbd83050"
+content-hash = "6462167a2d7f2f0732b632216d14dfe334b4aa00c0da6e97a4004a5663d2e4ed"
