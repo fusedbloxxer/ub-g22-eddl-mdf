@@ -9,7 +9,29 @@ from pyvista import PolyData
 from collections import namedtuple
 from torch import multinomial
 from torch.distributions import Dirichlet
+import torchvision.transforms.v2 as T
 import einops
+import pyvista as pv
+
+
+class TextureMapper:
+    def __call__(self, verts: Tensor, image: Tensor) -> Tensor:
+        # Create point cloud and compute uv coordinates using plane mapping
+        point_cloud: PolyData = PolyData(verts.numpy())
+        point_cloud.texture_map_to_plane(inplace=True)
+
+        # Compute UV coordinates from [-1, -1] to [1, 1] corners
+        uv: Tensor = 2 * torch.tensor(point_cloud.active_texture_coordinates) - 1
+
+        # Normalize image values in [0., 1.]
+        norm_image: Tensor = einops.rearrange(image, 'H W C -> 1 C H W')
+        norm_image = T.functional.to_dtype(norm_image, scale=True)
+
+        # Extract uv interpolated values from norm_image
+        index: Tensor = einops.rearrange(uv, 'N C -> N 1 1 1 C')
+        rgb: Tensor = torch.cat([torch.nn.functional.grid_sample(norm_image, coords, align_corners=True) for coords in list(index)], dim=0)
+        rgb = einops.rearrange(rgb, 'N C 1 1 -> N C')
+        return rgb
 
 
 class MeshSampler:
