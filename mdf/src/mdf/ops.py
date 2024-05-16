@@ -9,12 +9,70 @@ from pyvista import PolyData
 from collections import namedtuple
 from torch import multinomial
 from torch.distributions import Dirichlet
+import torchvision.transforms.functional as TF
 import torchvision.transforms.v2 as T
 import einops
 import pyvista as pv
 
 
-class TextureMapper:
+class PointsOnManifold(t.TypedDict):
+    # The real-valued positions of each sampled point (N, 3)
+    pos: Tensor
+
+    # The integer indices of vertices that form a face from which each point was sampled (N, 3)
+    faces: Tensor
+
+    # The barycentric coefficients for the triangle face (N, 3)
+    coefs: Tensor
+
+    # The k eigenfunctions values for each vertex (N, K)
+    pos_embedding: Tensor
+
+    # The signal (texture value) for each vertex (N, 3) (RGB values in [0, 1])
+    signal: Tensor
+
+    # The original image used as the function signal
+    image: Tensor
+
+
+class ManifoldSampler:
+    """Sample points on a 3d mesh along with texture and eigenfunction values."""
+
+    def __init__(
+        self,
+        verts: Tensor,
+        faces: Tensor,
+        k_evecs: int,
+        device: torch.device = torch.device('cpu'),
+    ) -> None:
+        super(ManifoldSampler, self).__init__()
+
+        # Eliminate vertices that don't form triangles
+        self.verts, self.faces = remove_detached_verts(verts, faces)
+
+        # Subcomponents
+        self.texture_mapper = TextureSampler()
+        self.mesh_sampler = MeshSampler(self.verts, self.faces)
+        self.lbo_embedder = LBOEmbedder(self.verts, self.faces, k_evecs, device)
+
+    def embed(self, verts: Tensor, bary: Tensor | None = None) -> Tensor:
+        return self.lbo_embedder(verts, bary)
+
+    def sample(self, n: int, image: Tensor) -> PointsOnManifold:
+        pos, faces, coefs = self.mesh_sampler.sample(n)
+        pos_embedding = self.lbo_embedder(faces, coefs)
+        signal = self.texture_mapper(pos, image)
+        return {
+            'pos': pos,
+            'coefs': coefs,
+            'image': image,
+            'signal': signal,
+            'faces': faces[:, 1:],
+            'pos_embedding': pos_embedding,
+        }
+
+
+class TextureSampler:
     def __call__(self, verts: Tensor, image: Tensor) -> Tensor:
         # Create point cloud and compute uv coordinates using plane mapping
         point_cloud: PolyData = PolyData(verts.numpy())
@@ -22,14 +80,16 @@ class TextureMapper:
 
         # Compute UV coordinates from [-1, -1] to [1, 1] corners
         uv: Tensor = 2 * torch.tensor(point_cloud.active_texture_coordinates) - 1
+        uv = torch.flip(uv, dims=[-1])
 
         # Normalize image values in [0., 1.]
         norm_image: Tensor = einops.rearrange(image, 'H W C -> 1 C H W')
         norm_image = T.functional.to_dtype(norm_image, scale=True)
+        norm_image = TF.rotate(norm_image, 270)
 
         # Extract uv interpolated values from norm_image
         index: Tensor = einops.rearrange(uv, 'N C -> N 1 1 1 C')
-        rgb: Tensor = torch.cat([torch.nn.functional.grid_sample(norm_image, coords, align_corners=True) for coords in list(index)], dim=0)
+        rgb: Tensor = torch.cat([torch.nn.functional.grid_sample(norm_image, coords, align_corners=True, padding_mode='reflection') for coords in list(index)], dim=0)
         rgb = einops.rearrange(rgb, 'N C 1 1 -> N C')
         return rgb
 
@@ -41,17 +101,15 @@ class MeshSampler:
         self,
         verts: Tensor,
         faces: Tensor,
-        device:torch.device = torch.device('cpu'),
     ) -> None:
         super(MeshSampler, self).__init__()
         self.verts: Tensor = verts
         self.faces: Tensor = faces
-        self.device: torch.device = device
         self.dirichlet = Dirichlet(concentration=torch.ones(3))
 
     def sample(self, n: int, indices: bool=True) -> t.Tuple[Tensor, Tensor, Tensor]:
         # Sample n triangle mesh faces without replacement
-        sample_verts_idx: Tensor = multinomial(torch.ones(self.faces.size(0)), num_samples=n, replacement=False)
+        sample_verts_idx: Tensor = multinomial(torch.ones(self.faces.size(0)), num_samples=n, replacement=True)
         sample_faces: Tensor = self.faces[sample_verts_idx]
 
         # Sample barycentric coordinates for each triangle mesh
@@ -72,7 +130,7 @@ class MeshSampler:
         return MeshSampler(verts, faces, *args, **kwargs)
 
 
-class LBOEmbedding:
+class LBOEmbedder:
     """
     Compute the first k eigenvectors accordin to the smallest eigenvalues for a 3d mesh using
     eigen-decomposition of LBO (symmetric normalized graph Laplacian).
@@ -85,10 +143,9 @@ class LBOEmbedding:
         k_evecs: int=10,
         device: torch.device = torch.device('cpu'),
     ) -> None:
-        super(LBOEmbedding, self).__init__()
-
-        # Eliminate unused vertices and offset faces
-        self.verts, self.faces = remove_detached_verts(verts, faces)
+        super(LBOEmbedder, self).__init__()
+        self.verts: Tensor = verts
+        self.faces: Tensor = faces
 
         # Compute symmetric normalized graph Laplacian
         A: Tensor = self.adjacency_matrix(self.verts, self.faces[:, 1:])
@@ -142,10 +199,10 @@ class LBOEmbedding:
         return matrix
 
     @staticmethod
-    def from_poly(poly: PolyData, *args, **kwargs) -> 'LBOEmbedding':
+    def from_poly(poly: PolyData, *args, **kwargs) -> 'LBOEmbedder':
         verts: Tensor = torch.tensor(poly.points)
         faces: Tensor = torch.tensor(poly.faces.reshape((-1, 4)))
-        return LBOEmbedding(verts, faces, *args, **kwargs)
+        return LBOEmbedder(verts, faces, *args, **kwargs)
 
 
 def remove_detached_verts(verts: Tensor, faces: Tensor) -> t.Tuple[Tensor, Tensor]:

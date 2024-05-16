@@ -17,6 +17,9 @@ import numpy as np
 import pyvista as pv
 from pytorch3d.io import load_objs_as_meshes
 
+from mdf.ops import PointsOnManifold
+from .ops import ManifoldSampler
+
 
 class DataManager:
     def __init__(
@@ -28,7 +31,7 @@ class DataManager:
         self.cache_dir = cache_dir if isinstance(cache_dir, pb.Path) else pb.Path(data_dir)
         self.managers = {
             'obj': ObjectManager(data_dir=self.data_dir / 'objects', cache_dir=self.cache_dir),
-            'weather': WeatherImageDataset(data_dir=self.data_dir / 'images' / 'weather'),
+            'weather': ImageDataset(data_dir=self.data_dir / 'images' / 'weather'),
             'mnist': MNISTImageDataset(data_dir=self.data_dir / 'images' / 'mnist'),
         }
 
@@ -42,20 +45,24 @@ class DataManager:
         return self.managers['obj']
 
     @property
-    def weather(self) -> 'WeatherImageDataset':
+    def weather(self) -> 'ImageDataset':
         return self.managers['weather']
 
     @property
     def mnist(self) -> 'MNISTImageDataset':
         return self.managers['mnist']
 
-    def download(self, name: str, ext: t.Literal['obj']):
+    def download(self, name: str, ext: t.Literal['obj']) -> None:
         self.managers[ext].download(name=name)
+
+    def dataset(self, manifold: str, signal: str, n_samples: int, k_evecs: int, device: torch.device):
+        return ManifoldDataset(self.objects[manifold], self.managers[signal], n_samples, k_evecs, device)
 
 
 class ImageEntry(t.TypedDict):
     data: np.ndarray
     label: int
+    path: str
 
 
 class MNISTImageDataset(Dataset):
@@ -68,7 +75,6 @@ class MNISTImageDataset(Dataset):
             T.ToImage(),
             T.ToDtype(dtype=torch.uint8, scale=True),
             T.Resize(size=(128, 128)),
-            T.Lambda(lambda x: einops.rearrange(x, '1 H W -> H W')),
         ]))
 
     def __getitem__(self, index: int) -> ImageEntry:
@@ -76,18 +82,19 @@ class MNISTImageDataset(Dataset):
         return {
             'data': entry[0].numpy(),
             'label': entry[1],
+            'path': 'n/a',
         }
 
     def __len__(self) -> int:
         return len(self.dataset)
 
 
-class WeatherImageEntry(t.TypedDict):
+class DataEntry(t.TypedDict):
     path: pb.Path
     label: int
 
 
-class WeatherImageDataset(Dataset):
+class ImageDataset(Dataset):
     def __init__(
         self,
         data_dir: pb.Path | str,
@@ -99,7 +106,7 @@ class WeatherImageDataset(Dataset):
 
         index = -1
         self.label_map: t.Dict[int, str] = {}
-        self.image_data: t.Dict[int, WeatherImageEntry] = {}
+        self.image_data: t.Dict[int, DataEntry] = {}
         self.transform = T.Compose([
             T.ToImage(),
             T.ToDtype(dtype=torch.uint8, scale=True),
@@ -118,11 +125,20 @@ class WeatherImageDataset(Dataset):
 
     def __getitem__(self, index: int) -> ImageEntry:
         entry = self.image_data[index]
-        data = torch.from_numpy(iio.imread(entry['path'], mode='RGB'))
-        data = einops.rearrange(data, 'H W C -> C H W')
-        data = self.transform(data)
-        data = einops.rearrange(data, 'C H W -> H W C')
-        return { 'data': data.numpy(), 'label': entry['label'] }
+
+        try:
+            data = torch.from_numpy(iio.imread(entry['path'], mode='RGB'))
+            data = einops.rearrange(data, 'H W C -> C H W')
+            data = self.transform(data)
+            data = einops.rearrange(data, 'C H W -> H W C')
+        except BaseException as e:
+            raise Exception(entry['path'])
+
+        return {
+            'data': data.numpy(),
+            'label': entry['label'],
+            'path': str(entry['path']),
+        }
 
     def __len__(self) -> int:
         return len(self.image_data)
@@ -174,4 +190,36 @@ class ObjectInstance:
         self.name = self.path.stem
         self.vista = pv.read(self.path)
         self.mesh = load_objs_as_meshes(files=[self.path], load_textures=True, device='cpu')
+        self.faces = torch.tensor(self.vista.faces.reshape((-1, 4)))
+        self.verts = torch.tensor(self.vista.points)
 
+
+class ManifoldDataset(Dataset):
+    def __init__(
+        self,
+        manifold: ObjectInstance,
+        signal: ImageDataset,
+        n_samples: int,
+        k_evecs: int,
+        device: torch.device = torch.device('cpu'),
+    ) -> None:
+        super(ManifoldDataset, self).__init__()
+        assert n_samples > 0, 'need at least one sample'
+        self.n_samples = n_samples
+
+        # Input data source
+        self.manifold: ObjectInstance = manifold
+        # Output data source
+        self.signal: ImageDataset = signal
+        # Point sampler over the input data source
+        self.sampler: ManifoldSampler = ManifoldSampler(self.manifold.verts, self.manifold.faces, k_evecs, device)
+
+    def __getitem__(self, index: int) -> PointsOnManifold:
+        # Retrieve one image as the output domain of the function
+        signal: ImageEntry = self.signal[index]
+
+        # Sample points on the given manifold and embed them using eigenfunctions
+        return self.sampler.sample(n=self.n_samples, image=torch.tensor(signal['data']))
+
+    def __len__(self) -> int:
+        return len(self.signal)
