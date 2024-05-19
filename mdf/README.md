@@ -12,13 +12,13 @@
 ### **Showcase**:
 
 #### Texture Mapping using Sampled Points on the 3D Mesh:
-![texture_mapping](res/texture_mapping.png)
+![texture_mapping](../res/texture_mapping.png)
 
 #### Interpolated Eigenfunction Values:
-![eigenfunctions](res/interpolation.png)
+![eigenfunctions](../res/interpolation.png)
 
 #### DDPM Sampling using $f \colon M \mapsto Y$ Learned Distribution
-![ddpm_sampling](res/sampling.png)
+![ddpm_sampling](../res/sampling.png)
 
 ### **Paper made by**:
 ```
