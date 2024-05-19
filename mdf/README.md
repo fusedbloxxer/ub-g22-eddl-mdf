@@ -6,7 +6,6 @@ Sources:
 
 Installation:
  - poetry install
- - install pytorch3d from source using submodules
 
 Paper made by:
 @misc{elhag2024manifold,
